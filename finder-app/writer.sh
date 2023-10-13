@@ -9,8 +9,11 @@ then
 fi
 
 FILE=$1
+FILE_Dir=${FILE%/*}/
 STRING=$2
 Sum=0
 files_count=0
+
+mkdir -p ${FILE_Dir}
 
 echo ${STRING} > ${FILE}
