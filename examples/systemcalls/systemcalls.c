@@ -1,4 +1,13 @@
 #include "systemcalls.h"
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -17,7 +26,15 @@ bool do_system(const char *cmd)
  *   or false() if it returned a failure
 */
 
-    return true;
+    int status = system(cmd);
+    if(status <= -1)
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
 }
 
 /**
@@ -59,9 +76,45 @@ bool do_exec(int count, ...)
  *
 */
 
-    va_end(args);
+    fflush(stdout);
+    pid_t pid = fork();
+    int status;
 
-    return true;
+    if(pid == -1)
+    {
+        return false;
+    }
+    else if (pid == 0)
+    {
+        execv(command[0], command);
+        exit(1);
+    }
+    else
+    {
+        if (waitpid(pid, &status, 0) == -1)
+        {
+            return false;
+        }
+        else if (WIFEXITED(status))
+        {
+            int exit_status = WEXITSTATUS(status);
+
+            if (exit_status == 0) 
+            {
+                return true;
+            } 
+            else 
+            {
+                return false;
+            }
+        } 
+        else 
+        {
+            return false;
+        }
+    }
+
+    va_end(args);
 }
 
 /**
@@ -92,8 +145,65 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    fflush(stdout);
+    pid_t pid = fork();
+    int status;
+    int ret_status = false;
+
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+	if (fd < 0) 
+    { 
+        perror("Error while opening"); 
+        return false; 
+    }
+
+    if(pid == -1)
+    {
+        close(fd);
+        ret_status = false;
+    }
+    else if (pid == 0)
+    {
+        int fd_s = dup(STDOUT_FILENO);
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+        int ret = execv(command[0], command);
+        dup2(fd_s, STDOUT_FILENO);
+
+        if (ret == -1)
+        {
+            exit(true);
+        }
+    }
+    else
+    {
+        if (waitpid(pid, &status, 0) == -1)
+        {
+            close(fd);
+            ret_status = false;
+        }
+        else if (WIFEXITED(status))
+        {
+            close(fd);
+            int e_status = WEXITSTATUS(status);
+
+            if (e_status == 0) 
+            {
+                ret_status = true;
+            } 
+            else 
+            {
+                ret_status = false;
+            }
+        } 
+        else 
+        {
+            close(fd);
+            ret_status = false;
+        }
+    }
 
     va_end(args);
 
-    return true;
+    return ret_status;
 }
