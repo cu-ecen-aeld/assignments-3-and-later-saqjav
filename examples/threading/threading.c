@@ -16,11 +16,29 @@ void* threadfunc(void* thread_param)
     //struct thread_data* thread_func_args = (struct thread_data *) thread_param;
 
     struct thread_data* thread_func_args = (struct thread_data *) thread_param;
+    thread_func_args->thread_complete_success = false;
+    DEBUG_LOG("THREAD STARTED");
+    usleep(thread_func_args->wait_to_obtain_ms*1000);
 
-    if(pthread_mutex_init(thread_func_args->mutex) !=0)
+    if(pthread_mutex_lock(thread_func_args->mutex) !=0)
     {
-        thread_func_args->thread_complete_success = false;
-        return thread_param;
+        ERROR_LOG("Mutex cannot be locked");
+        thread_func_args->thread_complete_success = false; 
+    }
+    else
+    {
+        DEBUG_LOG("Mutex locked");
+        usleep(thread_func_args->wait_to_release_ms*1000);
+        if(pthread_mutex_unlock(thread_func_args->mutex) != 0)
+        {
+            ERROR_LOG("Mutex still locked");
+            thread_func_args->thread_complete_success = false;
+        }
+        else
+        {
+            thread_func_args->thread_complete_success = true;
+            DEBUG_LOG("THREAD FINISHED");
+        }
     }
 
     return thread_param;
@@ -38,14 +56,23 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
      * See implementation details in threading.h file comment block
      */
 
-     thread_data *t_data = (thread_data*)malloc(sizeof(thread_data));
-     t_data->thread = thread;
-     t_data->mutex = mutex;
-     t_data->wait_to_obtain_ms = wait_to_obtain_ms;
-     t_data->wait_to_release_ms = wait_to_release_ms;
+    struct thread_data *t_data = (struct thread_data *) malloc(sizeof (struct thread_data));
+    
+    if (t_data == NULL) {
+        ERROR_LOG("Could not allocate thread_data");
+        return false;
+    }
+    t_data->mutex = mutex;
+    t_data->wait_to_obtain_ms = wait_to_obtain_ms;
+    t_data->wait_to_release_ms = wait_to_release_ms;
+    t_data->thread_complete_success = false;
 
-     thread_data *t_data2 = threadfunc(t_data);
-     return t_data2->thread_complete_success;
+    if (pthread_create(thread, NULL, threadfunc, t_data) !=0) {
+        ERROR_LOG("Could not create thread");
+        return false;
+    }
+
+    return true;
 
 }
 
