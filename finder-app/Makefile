@@ -9,6 +9,8 @@ ifeq ($(CROSS_COMPILE),aarch64-none-linux-gnu-gcc)
 	CC = aarch64-none-linux-gnu-gcc
 endif
 
+all: $(ELF)
+
 default: $(ELF)
 
 $(ELF): $(SRC) 
