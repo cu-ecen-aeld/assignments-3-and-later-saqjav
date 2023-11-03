@@ -17,7 +17,7 @@
 static bool disconnect = false;
 static int serverfd;
 static int clientfd;
-static char *buf;
+static char *data_buf;
 static char ipaddr[INET_ADDRSTRLEN];
 
 static void signal_callback(int signal_number)
@@ -38,22 +38,22 @@ static bool send_data(void)
 
 	if ((file = fopen(FILE_PATH, "r")) == NULL)
 	{
-		printf ("file open fail\n");
+		//printf ("file open failed\n");
 		return false;
 	}
 
-	while(fgets(buf, BUF_SIZE, file) != NULL)
+	while(fgets(data_buf, BUF_SIZE, file) != NULL)
 	{
-		if (send(clientfd, buf, strlen(buf), 0) == -1)
+		if (send(clientfd, data_buf, strlen(data_buf), 0) == -1)
 		{
-			printf("send is failed\n");
+			//printf("send is failed\n");
 			return false;
 		}
 	}
 								
 	if (fclose(file) != 0)
 	{
-		printf("fail to close file");
+		//printf("failed to close file");
 		return false;
 	}
 
@@ -66,29 +66,29 @@ static bool write_file(int data_size)
 	
 	if ((file = fopen(FILE_PATH, "a+")) == NULL)
 	{
-		printf("fail to open write file");
+		//printf("Failed to open write file");
 		return false;
 	}
 
-	char* cur_buf = buf;
+	char* tmp_buf = data_buf;
 	for (int i = 0; i < data_size; i++)
 	{
-		if (buf[i] == '\n')
+		if (data_buf[i] == '\n')
 		{
-			buf[i] = '\0';
-			if (fprintf(file, "%s\n", cur_buf) < 0)
+			data_buf[i] = '\0';
+			if (fprintf(file, "%s\n", tmp_buf) < 0)
 			{
-				printf("fail to write file");
+				//printf("Failed to write file");
 				return false;
 			}
 
-			cur_buf = &buf[i + 1];
+			tmp_buf = &data_buf[i + 1];
 		}
 	}
 
 	if (fclose(file) != 0)
 	{
-		printf("fail to close file");
+		//printf("failed to close file");
 		return false;
 	}
 
@@ -98,14 +98,14 @@ static bool write_file(int data_size)
 
 int main(int argc, char * argv[])
 {
-	bool daemon_mode = false;
+	bool daemon_bool = false;
 	int pid = 0;
 	int result = 0;
 	struct sigaction signal_action;
 	struct addrinfo hints;
 
 	if ((argc == 2) && (!strcmp(argv[1], "-d")))
-		daemon_mode = true;
+		daemon_bool = true;
 
 	memset(&signal_action, 0, sizeof(struct sigaction));
 	signal_action.sa_handler = signal_callback;
@@ -167,7 +167,7 @@ int main(int argc, char * argv[])
 	
 	freeaddrinfo(servinfo);
 
-	if (daemon_mode)
+	if (daemon_bool)
 	{
 		pid = fork();
 		
@@ -176,12 +176,18 @@ int main(int argc, char * argv[])
 			syslog(LOG_DEBUG, "FORK failed");
 			exit(EXIT_FAILURE);
 		}
+
+		if(pid > 0)
+		{
+			syslog(LOG_DEBUG, "Parent exiting");
+			exit(EXIT_SUCCESS);
+		}
 	}
 		
 
 	if (pid == 0)
 	{
-		if (listen(serverfd, 5) == -1)
+		if (listen(serverfd, 2) == -1)
 		{
 			perror("fail to listen socket");
 			return -1;
@@ -191,7 +197,7 @@ int main(int argc, char * argv[])
 		socklen_t sockaddrlen_connected = sizeof(struct sockaddr);
 		
 		openlog (NULL, 0, LOG_USER);
-		buf = malloc(sizeof(char) * BUF_SIZE);
+		data_buf = malloc(sizeof(char) * BUF_SIZE);
 
 		while (!disconnect)
 		{
@@ -206,7 +212,7 @@ int main(int argc, char * argv[])
 			{
 				int num_bytes_received;
 
-				if ((num_bytes_received = recv(clientfd, buf, BUF_SIZE, 0)) < 0)
+				if ((num_bytes_received = recv(clientfd, data_buf, BUF_SIZE, 0)) < 0)
 				{
 					perror("fail to receive data");
 					disconnect = true;
@@ -215,7 +221,6 @@ int main(int argc, char * argv[])
 				}
 				else if (num_bytes_received == 0)
 				{
-					//printf("finished\n");
 					break;
 				}
 				
@@ -245,7 +250,7 @@ int main(int argc, char * argv[])
 			}
 		}
 		
-		free(buf);
+		free(data_buf);
 		closelog();
 	}
 
