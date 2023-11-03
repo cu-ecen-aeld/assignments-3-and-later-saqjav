@@ -15,18 +15,18 @@
 #define FILE_PATH ("/var/tmp/aesdsocketdata")
 
 static bool disconnect = false;
-static int sockfd;
-static int sockfd_connected;
+static int serverfd;
+static int clientfd;
 static char *buf;
 static char ipaddr[INET_ADDRSTRLEN];
 
-static void signal_handler(int signal_number)
+static void signal_callback(int signal_number)
 {
 	if (signal_number == SIGINT || signal_number == SIGTERM)
 	{
 		syslog(LOG_INFO, "Closed connection from %s\n", ipaddr);
-		shutdown(sockfd, SHUT_RDWR);
-		shutdown(sockfd_connected, SHUT_RDWR);
+		shutdown(serverfd, SHUT_RDWR);
+		shutdown(clientfd, SHUT_RDWR);
 		remove("/var/tmp/aesdsocketdata");
 		disconnect = true;
 	}
@@ -44,8 +44,7 @@ static bool send_data(void)
 
 	while(fgets(buf, BUF_SIZE, file) != NULL)
 	{
-		//printf("send string: %s\n", buf);
-		if (send(sockfd_connected, buf, strlen(buf), 0) == -1)
+		if (send(clientfd, buf, strlen(buf), 0) == -1)
 		{
 			printf("send is failed\n");
 			return false;
@@ -77,8 +76,6 @@ static bool write_file(int data_size)
 		if (buf[i] == '\n')
 		{
 			buf[i] = '\0';
-			//printf("write string: %s\n",cur_buf);
-
 			if (fprintf(file, "%s\n", cur_buf) < 0)
 			{
 				printf("fail to write file");
@@ -104,24 +101,24 @@ int main(int argc, char * argv[])
 	bool daemon_mode = false;
 	int pid = 0;
 	int result = 0;
-	struct sigaction new_action;
+	struct sigaction signal_action;
 	struct addrinfo hints;
 
 	if ((argc == 2) && (!strcmp(argv[1], "-d")))
 		daemon_mode = true;
 
-	memset(&new_action, 0, sizeof(struct sigaction));
-	new_action.sa_handler = signal_handler;
+	memset(&signal_action, 0, sizeof(struct sigaction));
+	signal_action.sa_handler = signal_callback;
 
-	if (sigaction(SIGTERM, &new_action, NULL) != 0)
+	if (sigaction(SIGTERM, &signal_action, NULL) != 0)
 	{
-		perror("fail to register SIGTERM signal handler");
+		perror("fail to register SIGTERM signal callback");
 		return -1;
 	}
 
-	if (sigaction(SIGINT, &new_action, NULL) != 0)
+	if (sigaction(SIGINT, &signal_action, NULL) != 0)
 	{
-		perror("fail to register SIGINT signal handler");
+		perror("fail to register SIGINT signal callback");
 		return -1;
 	}
 			
@@ -130,7 +127,7 @@ int main(int argc, char * argv[])
 	hints.ai_socktype = SOCK_STREAM;
 	//hints.ai_flags = AI_PASSIVE;
 
-	if ((sockfd = socket(hints.ai_family, hints.ai_socktype, 0)) == -1)
+	if ((serverfd = socket(hints.ai_family, hints.ai_socktype, 0)) == -1)
 	{
 		perror("fail to create socket");
 		return -1;
@@ -139,7 +136,7 @@ int main(int argc, char * argv[])
 	struct addrinfo *servinfo;
 
 	int option = 1;
-	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(int)) == -1)
+	if (setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(int)) == -1)
 	{
 		perror("fail to set socket option");
 		return -1;
@@ -162,7 +159,7 @@ int main(int argc, char * argv[])
 		
 	syslog(LOG_INFO, "Accepted connection from %s\n", p_ip_addr);
 	
-	if (bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1)
+	if (bind(serverfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1)
 	{
 		perror("fail to bind socket");
 		return -1;
@@ -171,11 +168,20 @@ int main(int argc, char * argv[])
 	freeaddrinfo(servinfo);
 
 	if (daemon_mode)
+	{
 		pid = fork();
+		
+		if(pid < 0)
+		{
+			syslog(LOG_DEBUG, "FORK failed");
+			exit(EXIT_FAILURE);
+		}
+	}
+		
 
 	if (pid == 0)
 	{
-		if (listen(sockfd, 5) == -1)
+		if (listen(serverfd, 5) == -1)
 		{
 			perror("fail to listen socket");
 			return -1;
@@ -189,7 +195,7 @@ int main(int argc, char * argv[])
 
 		while (!disconnect)
 		{
-			if ((sockfd_connected = accept(sockfd, &sockaddr_connected, &sockaddrlen_connected)) == -1)
+			if ((clientfd = accept(serverfd, &sockaddr_connected, &sockaddrlen_connected)) == -1)
 			{
 				perror("fail to listen socket");
 				result = -1;
@@ -200,7 +206,7 @@ int main(int argc, char * argv[])
 			{
 				int num_bytes_received;
 
-				if ((num_bytes_received = recv(sockfd_connected, buf, BUF_SIZE, 0)) < 0)
+				if ((num_bytes_received = recv(clientfd, buf, BUF_SIZE, 0)) < 0)
 				{
 					perror("fail to receive data");
 					disconnect = true;
